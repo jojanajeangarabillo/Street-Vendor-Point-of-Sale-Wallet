@@ -1,0 +1,15 @@
+{
+    "name": "google/street-vendor-pos",
+    "description": "Street Vendor Point-of-Sale Wallet with Stellar Integration",
+    "type": "project",
+    "require": {
+        "php": ">=8.1",
+        "guzzlehttp/guzzle": "^7.8",
+        "endroid/qr-code": "^6.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    }
+}

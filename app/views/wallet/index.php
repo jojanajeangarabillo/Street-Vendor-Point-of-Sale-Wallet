@@ -12,30 +12,41 @@
                 <h5 class="card-title mb-0">Stellar Wallet Details</h5>
             </div>
             <div class="card-body">
+                <?php flash('wallet_msg'); ?>
                 <div class="mb-3">
                     <label class="text-muted small">Public Key</label>
                     <div class="input-group">
-                        <input type="text" class="form-control bg-light" value="Not connected" readonly id="publicKey">
+                        <input type="text" class="form-control bg-light" value="<?php echo $data['wallet']->stellar_public_key ?? 'Not connected'; ?>" readonly id="publicKey">
+                        <?php if($data['wallet']): ?>
                         <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard('publicKey')">
                             <i class="bi bi-clipboard"></i>
                         </button>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="mb-3">
                     <label class="text-muted small">Network</label>
-                    <div><span class="badge bg-info text-dark">Testnet</span></div>
+                    <div><span class="badge bg-info text-dark"><?php echo ucfirst($data['wallet']->network ?? 'testnet'); ?></span></div>
                 </div>
                 <div class="mb-3">
                     <label class="text-muted small">Balance</label>
-                    <h3 class="text-primary">0.0000000 XLM</h3>
+                    <h3 class="text-primary"><?php echo $data['balance']; ?> XLM</h3>
                 </div>
                 <hr>
                 <div class="d-grid gap-2">
-                    <button class="btn btn-primary" disabled>
-                        <i class="bi bi-plus-circle me-2"></i> Create New Wallet
+                    <?php if(!$data['wallet']): ?>
+                    <form action="<?php echo URLROOT; ?>/wallet/createWallet" method="post" class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-circle me-2"></i> Create New Wallet
+                        </button>
+                    </form>
+                    <?php else: ?>
+                    <button class="btn btn-outline-success" onclick="location.reload()">
+                        <i class="bi bi-arrow-repeat me-2"></i> Refresh Balance
                     </button>
-                    <button class="btn btn-outline-dark">
-                        <i class="bi bi-box-arrow-in-right me-2"></i> Connect Freighter Wallet
+                    <?php endif; ?>
+                    <button class="btn btn-outline-dark" disabled>
+                        <i class="bi bi-box-arrow-in-right me-2"></i> Connect Freighter Wallet (Coming Soon)
                     </button>
                 </div>
             </div>

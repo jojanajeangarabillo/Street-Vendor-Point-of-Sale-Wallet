@@ -19,17 +19,32 @@
                                 <th>Amount</th>
                                 <th>Description</th>
                                 <th>Status</th>
-                                <th>Expires In</th>
+                                <th>Created At</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td colspan="6" class="text-center py-4">
-                                    <div class="text-muted">No active payment requests</div>
-                                    <a href="<?php echo URLROOT; ?>/payment/create" class="btn btn-sm btn-link">Create one now</a>
-                                </td>
-                            </tr>
+                            <?php if(empty($data['requests'])) : ?>
+                                <tr>
+                                    <td colspan="6" class="text-center py-4">
+                                        <div class="text-muted">No active payment requests</div>
+                                        <a href="<?php echo URLROOT; ?>/payment/create" class="btn btn-sm btn-link">Create one now</a>
+                                    </td>
+                                </tr>
+                            <?php else : ?>
+                                <?php foreach($data['requests'] as $request) : ?>
+                                    <tr>
+                                        <td><strong><?php echo $request->payment_reference; ?></strong></td>
+                                        <td><?php echo $request->amount; ?> XLM</td>
+                                        <td><?php echo $request->description; ?></td>
+                                        <td><span class="badge bg-warning text-dark">Pending</span></td>
+                                        <td><?php echo $request->created_at; ?></td>
+                                        <td>
+                                            <a href="<?php echo URLROOT; ?>/payment/showQR/<?php echo $request->payment_reference; ?>" class="btn btn-sm btn-outline-primary">Show QR</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
