@@ -31,9 +31,25 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td colspan="5" class="text-center py-4 text-muted">No transaction history available</td>
-                    </tr>
+                    <?php if(empty($data['transactions'])) : ?>
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">No transaction history available</td>
+                        </tr>
+                    <?php else : ?>
+                        <?php foreach($data['transactions'] as $tx) : ?>
+                            <tr>
+                                <td><?php echo date('M j, Y H:i', strtotime($tx->confirmed_at)); ?></td>
+                                <td><code><?php echo $tx->payment_reference ?? 'N/A'; ?></code></td>
+                                <td>
+                                    <a href="<?php echo STELLAR_HORIZON_URL; ?>/transactions/<?php echo $tx->stellar_transaction_hash; ?>" target="_blank" class="text-truncate d-inline-block" style="max-width: 150px;">
+                                        <?php echo $tx->stellar_transaction_hash; ?>
+                                    </a>
+                                </td>
+                                <td><strong><?php echo $tx->amount; ?></strong> <?php echo $tx->asset_code; ?></td>
+                                <td><span class="badge bg-success">Confirmed</span></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>

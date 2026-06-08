@@ -5,15 +5,37 @@ use GuzzleHttp\Exception\GuzzleException;
 
 class StellarService {
     private $client;
-    private $horizonUrl = 'https://horizon-testnet.stellar.org';
-    private $friendbotUrl = 'https://friendbot.stellar.org';
+    private $horizonUrl;
+    private $friendbotUrl;
+    private $cache = [];
 
     public function __construct() {
-        // Initialize Guzzle Client
+        $this->horizonUrl = defined('STELLAR_HORIZON_URL') ? STELLAR_HORIZON_URL : 'https://horizon-testnet.stellar.org';
+        $this->friendbotUrl = defined('STELLAR_FRIENDBOT_URL') ? STELLAR_FRIENDBOT_URL : 'https://friendbot.stellar.org';
+
+        // Initialize Guzzle Client with SSL verification enabled (default)
         $this->client = new Client([
-            'timeout'  => 15.0,
-            'verify'   => false, // Useful for some XAMPP environments with SSL issues
+            'timeout'  => 20.0,
         ]);
+    }
+
+    /**
+     * Internal cache check (simple per-request lifetime)
+     */
+    private function getCachedResponse(string $url, array $query) {
+        $key = md5($url . serialize($query));
+        if (isset($this->cache[$key]) && (time() - $this->cache[$key]['time'] < 5)) {
+            return $this->cache[$key]['data'];
+        }
+        return null;
+    }
+
+    private function setCacheResponse(string $url, array $query, $data) {
+        $key = md5($url . serialize($query));
+        $this->cache[$key] = [
+            'time' => time(),
+            'data' => $data
+        ];
     }
 
     /**
@@ -57,46 +79,85 @@ class StellarService {
      * Fetch native XLM balance from Horizon
      */
     public function getBalance(string $publicKey): ?string {
+        $url = $this->horizonUrl . '/accounts/' . $publicKey;
+        $cached = $this->getCachedResponse($url, []);
+        if ($cached) return $cached;
+
         try {
-            $response = $this->client->get($this->horizonUrl . '/accounts/' . $publicKey);
+            $response = $this->client->get($url);
             $data = json_decode($response->getBody()->getContents(), true);
             
+            $balanceStr = '0.0000000';
             if (isset($data['balances'])) {
                 foreach ($data['balances'] as $balance) {
                     if ($balance['asset_type'] === 'native') {
-                        return $balance['balance'];
+                        $balanceStr = $balance['balance'];
+                        break;
                     }
                 }
             }
-            return '0.0000000';
+            $this->setCacheResponse($url, [], $balanceStr);
+            return $balanceStr;
         } catch (GuzzleException $e) {
-            // Account might not exist yet
             return '0.0000000';
         }
     }
 
     /**
-     * Check if a payment with a specific memo has been received
+     * Check if a payment with specific criteria has been received
      */
-    public function verifyPayment(string $publicKey, string $memo): ?array {
+    public function verifyPayment(string $publicKey, string $memo, string $expectedAmount, string $expectedAsset = 'native'): ?array {
         try {
-            // Fetch recent transactions for the account
-            $response = $this->client->get($this->horizonUrl . '/accounts/' . $publicKey . '/transactions', [
-                'query' => [
-                    'order' => 'desc',
-                    'limit' => 10
-                ]
-            ]);
-            $data = json_decode($response->getBody()->getContents(), true);
+            $cursor = null;
+            $maxPages = 3; // Check up to 60 transactions
             
-            if (isset($data['_embedded']['records'])) {
+            for ($i = 0; $i < $maxPages; $i++) {
+                $url = $this->horizonUrl . '/accounts/' . $publicKey . '/transactions';
+                $query = [
+                    'order' => 'desc',
+                    'limit' => 20
+                ];
+                if ($cursor) $query['cursor'] = $cursor;
+
+                $data = $this->getCachedResponse($url, $query);
+                if (!$data) {
+                    $response = $this->client->get($url, ['query' => $query]);
+                    $data = json_decode($response->getBody()->getContents(), true);
+                    $this->setCacheResponse($url, $query, $data);
+                }
+                
+                if (empty($data['_embedded']['records'])) break;
+
                 foreach ($data['_embedded']['records'] as $tx) {
-                    // Check if transaction is successful and memo matches
-                    if ($tx['successful'] && isset($tx['memo']) && $tx['memo'] === $memo) {
-                        return [
-                            'hash' => $tx['hash'],
-                            'created_at' => $tx['created_at']
-                        ];
+                    // Update cursor for next page if needed
+                    $cursor = $tx['paging_token'];
+
+                    // 1. Check if transaction was successful and memo matches
+                    if (!$tx['successful']) continue;
+                    if (!isset($tx['memo']) || $tx['memo'] !== $memo) continue;
+
+                    // 2. Fetch operations for this transaction to verify payment details
+                    $opsResponse = $this->client->get($tx['_links']['operations']['href']);
+                    $opsData = json_decode($opsResponse->getBody()->getContents(), true);
+
+                    foreach ($opsData['_embedded']['records'] as $op) {
+                        if ($op['type'] === 'payment') {
+                            $isNative = ($expectedAsset === 'native' && $op['asset_type'] === 'native');
+                            $isAsset = ($op['asset_code'] === $expectedAsset);
+                            
+                            // 3. Verify destination, amount, and asset
+                            if ($op['to'] === $publicKey && 
+                                ($isNative || $isAsset) && 
+                                floatval($op['amount']) >= floatval($expectedAmount)) {
+                                
+                                return [
+                                    'hash' => $tx['hash'],
+                                    'amount' => $op['amount'],
+                                    'sender' => $op['from'],
+                                    'created_at' => $tx['created_at']
+                                ];
+                            }
+                        }
                     }
                 }
             }

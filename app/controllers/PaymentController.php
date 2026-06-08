@@ -11,12 +11,14 @@ require_once APPROOT . '/services/StellarService.php';
 class PaymentController extends Controller {
     private $paymentModel;
     private $walletModel;
+    private $transactionModel;
     private $stellarService;
 
     public function __construct() {
         if (!isLoggedIn()) redirect('auth/login');
         $this->paymentModel = $this->model('PaymentRequest');
         $this->walletModel = $this->model('Wallet');
+        $this->transactionModel = $this->model('Transaction');
         $this->stellarService = new StellarService();
     }
 
@@ -33,6 +35,7 @@ class PaymentController extends Controller {
 
             $data = [
                 'vendor_id' => $_SESSION['vendor_id'],
+                'destination_address' => $wallet->stellar_public_key,
                 'amount' => trim($_POST['amount']),
                 'description' => trim($_POST['description']),
                 'payment_reference' => strtoupper(bin2hex(random_bytes(4))), // Short ref for memo
@@ -40,7 +43,7 @@ class PaymentController extends Controller {
                 'amount_err' => ''
             ];
 
-            if (empty($data['amount']) || $data['amount'] <= 0) {
+            if (empty($data['amount']) || !is_numeric($data['amount']) || $data['amount'] <= 0) {
                 $data['amount_err'] = 'Please enter a valid amount';
             }
 
@@ -70,13 +73,17 @@ class PaymentController extends Controller {
             return;
         }
 
-        $wallet = $this->walletModel->getWalletByVendor($_SESSION['vendor_id']);
+        // Use the destination address stored at creation time (qr_data)
+        $destination = $request->qr_data;
         
-        // Generate Stellar URI
-        // Format: web+stellar:pay?destination=ADDR&amount=AMT&memo=REF&asset_code=XLM
-        $stellarUri = "web+stellar:pay?destination=" . $wallet->stellar_public_key . "&amount=" . $request->amount . "&memo=" . $request->payment_reference . "&asset_code=XLM";
+        // Generate Stellar URI (SEP-7)
+        // Format: web+stellar:pay?destination=ADDR&amount=AMT&memo=REF&memo_type=MEMO_TEXT
+        $stellarUri = "web+stellar:pay?destination=" . urlencode($destination) . 
+                      "&amount=" . urlencode($request->amount) . 
+                      "&memo=" . urlencode($request->payment_reference) . 
+                      "&memo_type=MEMO_TEXT";
 
-        // Generate QR Code using direct API (v6 compatible - QrCode is readonly)
+        // Generate QR Code
         $qrCode = new QrCode(
             data: $stellarUri,
             encoding: new Encoding('UTF-8'),
@@ -114,7 +121,7 @@ class PaymentController extends Controller {
     public function checkStatus($reference) {
         $request = $this->paymentModel->getByReference($reference);
         if (!$request) {
-            echo json_encode(['status' => 'error']);
+            echo json_encode(['status' => 'error', 'message' => 'Request not found']);
             return;
         }
 
@@ -123,13 +130,40 @@ class PaymentController extends Controller {
             return;
         }
 
+        if ($request->status == 'expired' || strtotime($request->expires_at) < time()) {
+            if ($request->status != 'expired') {
+                $this->paymentModel->markAsExpired($request->id);
+            }
+            echo json_encode(['status' => 'expired']);
+            return;
+        }
+
         // Verify on blockchain
-        $wallet = $this->walletModel->getWalletByVendor($request->vendor_id);
-        $payment = $this->stellarService->verifyPayment($wallet->stellar_public_key, $request->payment_reference);
+        // Use the destination address stored at creation (qr_data)
+        $destination = $request->qr_data;
+        $payment = $this->stellarService->verifyPayment(
+            $destination, 
+            $request->payment_reference, 
+            $request->amount, 
+            $request->asset_code
+        );
 
         if ($payment) {
+            // 1. Mark payment request as paid
             $this->paymentModel->markAsPaid($request->id);
-            // Optionally record in transactions table
+            
+            // 2. Record in transactions table
+            $this->transactionModel->record([
+                'vendor_id' => $request->vendor_id,
+                'payment_request_id' => $request->id,
+                'hash' => $payment['hash'],
+                'sender' => $payment['sender'],
+                'receiver' => $destination,
+                'amount' => $payment['amount'],
+                'asset' => $request->asset_code,
+                'confirmed_at' => date('Y-m-d H:i:s', strtotime($payment['created_at']))
+            ]);
+
             echo json_encode(['status' => 'paid', 'hash' => $payment['hash']]);
         } else {
             echo json_encode(['status' => 'pending']);

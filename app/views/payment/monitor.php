@@ -11,7 +11,7 @@
     <div class="col-md-12">
         <div class="card shadow">
             <div class="card-body">
-                <div class="table-responsive">
+                <div id="requests-container" class="table-responsive">
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
@@ -23,7 +23,7 @@
                                 <th>Action</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="requests-body">
                             <?php if(empty($data['requests'])) : ?>
                                 <tr>
                                     <td colspan="6" class="text-center py-4">
@@ -33,7 +33,7 @@
                                 </tr>
                             <?php else : ?>
                                 <?php foreach($data['requests'] as $request) : ?>
-                                    <tr>
+                                    <tr id="request-<?php echo $request->payment_reference; ?>">
                                         <td><strong><?php echo $request->payment_reference; ?></strong></td>
                                         <td><?php echo $request->amount; ?> XLM</td>
                                         <td><?php echo $request->description; ?></td>
@@ -52,5 +52,35 @@
         </div>
     </div>
 </div>
+
+<script>
+    function refreshRequests() {
+        // For simplicity, we'll just reload the page for now, but in a real app, we'd fetch JSON
+        // Actually, let's just do a location.reload() every 30 seconds as a simple "auto-refresh"
+        // OR better, fetch the checkStatus for each pending request.
+        
+        const rows = document.querySelectorAll('[id^="request-"]');
+        rows.forEach(row => {
+            const ref = row.id.replace('request-', '');
+            fetch(`<?php echo URLROOT; ?>/payment/checkStatus/${ref}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'paid') {
+                        row.classList.add('table-success');
+                        row.querySelector('.badge').className = 'badge bg-success';
+                        row.querySelector('.badge').innerText = 'Paid';
+                        setTimeout(() => row.remove(), 5000);
+                    } else if (data.status === 'expired') {
+                        row.classList.add('table-danger');
+                        row.querySelector('.badge').className = 'badge bg-danger';
+                        row.querySelector('.badge').innerText = 'Expired';
+                        setTimeout(() => row.remove(), 5000);
+                    }
+                });
+        });
+    }
+
+    setInterval(refreshRequests, 15000); // Check every 15 seconds
+</script>
 
 <?php require APPROOT . '/views/layout/footer.php'; ?>

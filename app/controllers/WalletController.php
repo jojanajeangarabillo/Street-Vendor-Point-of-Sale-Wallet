@@ -54,14 +54,23 @@ class WalletController extends Controller {
                     'vendor_id' => $_SESSION['vendor_id'],
                     'public_key' => $keypair['publicKey'],
                     'wallet_type' => 'internal',
-                    'network' => 'testnet'
+                    'network' => STELLAR_NETWORK
                 ];
 
                 if ($this->walletModel->saveWallet($walletData)) {
-                    // Attempt to fund with Friendbot
-                    $this->stellarService->fundAccount($keypair['publicKey']);
+                    // Attempt to fund with Friendbot (only on testnet)
+                    if (STELLAR_NETWORK === 'testnet') {
+                        $this->stellarService->fundAccount($keypair['publicKey']);
+                    }
                     
-                    flash('wallet_msg', 'Wallet created! SAVE YOUR SECRET KEY: ' . $keypair['secretKey'], 'alert alert-success');
+                    // Instead of flash message, we'll show a dedicated backup page
+                    $data = [
+                        'title' => 'Backup Your Wallet',
+                        'public_key' => $keypair['publicKey'],
+                        'secret_key' => $keypair['secretKey']
+                    ];
+                    $this->view('wallet/backup', $data);
+                    return;
                 } else {
                     flash('wallet_msg', 'Database error: Could not save wallet.', 'alert alert-danger');
                 }

@@ -5,7 +5,7 @@ class PaymentRequest extends Model {
      * Create a new payment request
      */
     public function create($data) {
-        $this->db->query('INSERT INTO payment_requests (vendor_id, amount, description, payment_reference, status, expires_at) VALUES (:vendor_id, :amount, :description, :payment_reference, :status, :expires_at)');
+        $this->db->query('INSERT INTO payment_requests (vendor_id, amount, description, payment_reference, status, expires_at, qr_data) VALUES (:vendor_id, :amount, :description, :payment_reference, :status, :expires_at, :qr_data)');
         
         $this->db->bind(':vendor_id', $data['vendor_id']);
         $this->db->bind(':amount', $data['amount']);
@@ -13,6 +13,7 @@ class PaymentRequest extends Model {
         $this->db->bind(':payment_reference', $data['payment_reference']);
         $this->db->bind(':status', 'pending');
         $this->db->bind(':expires_at', $data['expires_at']);
+        $this->db->bind(':qr_data', $data['destination_address']); // Using qr_data to store destination address
 
         return $this->db->execute();
     }
@@ -40,6 +41,15 @@ class PaymentRequest extends Model {
      */
     public function markAsPaid($id) {
         $this->db->query('UPDATE payment_requests SET status = "completed" WHERE id = :id');
+        $this->db->bind(':id', $id);
+        return $this->db->execute();
+    }
+
+    /**
+     * Update status to expired
+     */
+    public function markAsExpired($id) {
+        $this->db->query('UPDATE payment_requests SET status = "expired" WHERE id = :id');
         $this->db->bind(':id', $id);
         return $this->db->execute();
     }

@@ -41,11 +41,18 @@
     </div>
 </div>
 
-<!-- Stellar SDK & Freighter API -->
+<!-- Stellar SDK -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/stellar-sdk/12.1.0/stellar-sdk.min.js"></script>
-<script src="https://unpkg.com/@stellar/freighter-api@1.1.2/dist/index.min.js"></script>
 
-<script>
+<script type="module">
+    // Using esm.sh as it often handles module resolution more reliably for browser-direct imports
+    import { isConnected, getPublicKey, signTransaction } from 'https://esm.sh/@stellar/freighter-api';
+
+    console.log("Freighter POS System: Loaded");
+
+    // shared state
+    let senderPublicKey = "";
+
     // Constants from PHP
     <?php
         $parsed_url = parse_url($data['stellar_uri']);
@@ -54,83 +61,135 @@
     ?>
     const destination = '<?php echo $destination; ?>';
     const amount = '<?php echo $data['request']->amount; ?>';
-    const memo = '<?php echo $data['request']->payment_reference; ?>';
+    const memoText = '<?php echo $data['request']->payment_reference; ?>';
     const reference = '<?php echo $data['request']->payment_reference; ?>';
 
-    // Stellar Server Configuration
-    const server = new StellarSdk.Horizon.Server("https://horizon-testnet.stellar.org");
-    const freighter = window.freighterApi;
+    const server = new StellarSdk.Horizon.Server("<?php echo STELLAR_HORIZON_URL; ?>");
+    const networkPassphrase = "<?php echo STELLAR_NETWORK_PASSPHRASE; ?>";
 
-    // Connect Wallet Logic
-    document.getElementById('connect-freighter').addEventListener('click', async () => {
-        if (!await freighter.isConnected()) {
-            alert("Freighter Wallet not found. Please install the extension.");
+    /**
+     * Connect to Freighter
+     */
+    async function connectWallet() {
+        console.log("Connect Wallet: Initiated");
+        const connectBtn = document.getElementById('connect-freighter');
+        const payBtn = document.getElementById('pay-freighter');
+
+        try {
+            // Check if installed
+            const connected = await isConnected();
+            if (!connected) {
+                alert("Freighter extension not detected. Please install it and REFRESH the page.");
+                return;
+            }
+
+            // Request permission and get public key
+            const pk = await getPublicKey();
+            
+            if (pk) {
+                console.log("Connect Wallet: Success", pk);
+                senderPublicKey = pk;
+                
+                connectBtn.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i>Connected: ${pk.substring(0, 5)}...${pk.substring(51)}`;
+                connectBtn.classList.replace('btn-info', 'btn-outline-info');
+                payBtn.style.display = 'block';
+            }
+        } catch (error) {
+            console.error("Connect Wallet: Error", error);
+            alert("Connection failed. Make sure your Freighter wallet is UNLOCKED and you have allowed access.");
+        }
+    }
+
+    /**
+     * Execute Payment
+     */
+    async function executePayment() {
+        if (!senderPublicKey) {
+            alert("Please connect your wallet first.");
             return;
         }
 
-        try {
-            const publicKey = await freighter.getPublicKey();
-            if (publicKey) {
-                document.getElementById('connect-freighter').innerText = `Connected: ${publicKey.substring(0, 5)}...${publicKey.substring(51)}`;
-                document.getElementById('connect-freighter').classList.replace('btn-info', 'btn-outline-info');
-                document.getElementById('pay-freighter').style.display = 'block';
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    });
+        const payBtn = document.getElementById('pay-freighter');
 
-    // Pay with Freighter Logic
-    document.getElementById('pay-freighter').addEventListener('click', async () => {
         try {
-            const sender = await freighter.getPublicKey();
-            const account = await server.loadAccount(sender);
+            payBtn.disabled = true;
+            payBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading Account...';
+
+            const account = await server.loadAccount(senderPublicKey);
 
             const transaction = new StellarSdk.TransactionBuilder(account, {
                 fee: StellarSdk.BASE_FEE,
-                networkPassphrase: StellarSdk.Networks.TESTNET,
+                networkPassphrase: networkPassphrase,
             })
             .addOperation(StellarSdk.Operation.payment({
                 destination: destination,
                 asset: StellarSdk.Asset.native(),
                 amount: amount,
             }))
-            .addMemo(StellarSdk.Memo.text(memo))
+            .addMemo(StellarSdk.Memo.text(memoText))
             .setTimeout(60)
             .build();
 
-            const signedXdr = await freighter.signTransaction(transaction.toXDR(), { network: "TESTNET" });
-            const result = await server.submitTransaction(StellarSdk.TransactionBuilder.fromXDR(signedXdr, StellarSdk.Networks.TESTNET));
+            const xdr = transaction.toXDR();
             
-            console.log("Success:", result);
-            document.getElementById('pay-freighter').innerHTML = '<i class="bi bi-check-circle me-2"></i> Payment Sent!';
-            document.getElementById('pay-freighter').disabled = true;
+            payBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sign in Freighter...';
+            const signedXdr = await signTransaction(xdr, { network: "<?php echo strtoupper(STELLAR_NETWORK); ?>" });
+            
+            payBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
+            const result = await server.submitTransaction(StellarSdk.TransactionBuilder.fromXDR(signedXdr, networkPassphrase));
+            
+            console.log("Payment: Success", result.hash);
+            payBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i> Payment Successful!';
+            payBtn.classList.replace('btn-success', 'btn-outline-success');
         } catch (error) {
-            console.error("Payment Error:", error);
-            alert("Payment failed: " + (error.message || "Unknown error"));
+            console.error("Payment: Failed", error);
+            payBtn.disabled = false;
+            payBtn.innerHTML = '<i class="bi bi-wallet-fill me-2"></i> Pay with Freighter';
+            alert("Transaction failed: " + (error.message || "User rejected or session expired."));
         }
-    });
+    }
 
-    const checkStatus = () => {
-        fetch(`<?php echo URLROOT; ?>/payment/checkStatus/${reference}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'paid') {
-                    document.getElementById('payment-status').innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="bi bi-check-circle-fill me-2"></i> Payment Received!
-                        </div>
-                        <a href="<?php echo URLROOT; ?>/dashboard" class="btn btn-success w-100">Go to Dashboard</a>
-                    `;
-                } else {
-                    setTimeout(checkStatus, 5000); // Poll every 5 seconds
-                }
-            })
-            .catch(err => console.error('Error checking status:', err));
-    };
+    /**
+     * Poll Payment Status
+     */
+    function startPolling() {
+        const checkStatus = () => {
+            fetch(`<?php echo URLROOT; ?>/payment/checkStatus/${reference}`)
+                .then(res => res.json())
+                .then(data => {
+                    const statusBox = document.getElementById('payment-status');
+                    if (data.status === 'paid') {
+                        statusBox.innerHTML = `
+                            <div class="alert alert-success mt-3 shadow-sm">
+                                <i class="bi bi-check-circle-fill me-2"></i> Payment Received!
+                            </div>
+                            <a href="<?php echo URLROOT; ?>/dashboard" class="btn btn-success w-100 mt-2">Go to Dashboard</a>
+                        `;
+                    } else if (data.status === 'expired') {
+                        statusBox.innerHTML = `
+                            <div class="alert alert-danger mt-3 shadow-sm">
+                                <i class="bi bi-x-circle-fill me-2"></i> Request Expired
+                            </div>
+                            <a href="<?php echo URLROOT; ?>/payment/create" class="btn btn-primary w-100 mt-2">Create New Request</a>
+                        `;
+                    } else {
+                        setTimeout(checkStatus, 10000); // Poll every 10 seconds
+                    }
+                })
+                .catch(err => {
+                    console.error('Polling: Error', err);
+                    setTimeout(checkStatus, 15000);
+                });
+        };
+        checkStatus();
+    }
 
-    // Start polling
-    checkStatus();
+    // Attach to buttons explicitly after module load
+    document.getElementById('connect-freighter').onclick = connectWallet;
+    document.getElementById('pay-freighter').onclick = executePayment;
+
+    // Start polling immediately
+    startPolling();
 </script>
 
 <?php require APPROOT . '/views/layout/footer.php'; ?>
