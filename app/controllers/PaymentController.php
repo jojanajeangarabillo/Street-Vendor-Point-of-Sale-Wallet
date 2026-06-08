@@ -76,13 +76,15 @@ class PaymentController extends Controller {
         // Format: web+stellar:pay?destination=ADDR&amount=AMT&memo=REF&asset_code=XLM
         $stellarUri = "web+stellar:pay?destination=" . $wallet->stellar_public_key . "&amount=" . $request->amount . "&memo=" . $request->payment_reference . "&asset_code=XLM";
 
-        // Generate QR Code using direct API (v6 compatible)
-        $qrCode = new QrCode($stellarUri);
-        $qrCode->setEncoding(new Encoding('UTF-8'));
-        $qrCode->setErrorCorrectionLevel(ErrorCorrectionLevel::Low);
-        $qrCode->setSize(300);
-        $qrCode->setMargin(10);
-        $qrCode->setRoundBlockSizeMode(RoundBlockSizeMode::Margin);
+        // Generate QR Code using direct API (v6 compatible - QrCode is readonly)
+        $qrCode = new QrCode(
+            data: $stellarUri,
+            encoding: new Encoding('UTF-8'),
+            errorCorrectionLevel: ErrorCorrectionLevel::Low,
+            size: 300,
+            margin: 10,
+            roundBlockSizeMode: RoundBlockSizeMode::Margin
+        );
 
         $writer = new PngWriter();
         $result = $writer->write($qrCode);
