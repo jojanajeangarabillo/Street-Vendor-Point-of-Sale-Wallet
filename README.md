@@ -41,7 +41,7 @@ Payment Flow:
 
 ## GitHub Repository
 
-https://github.com/[your-organization]/vendorpay-stellar
+[https://github.com/[your-organization]/vendorpay-stellar](https://github.com/jojanajeangarabillo/Street-Vendor-Point-of-Sale-Wallet.git)
 
 ## Network & Deployment
 
